@@ -1,0 +1,465 @@
+---
+title: "Project 1"
+author: "Hayat Kimo"
+date: "2025-10-27"
+output: pdf_document
+---
+```{r}
+library(tidyverse)
+library(dplyr)
+
+library(nycflights13)
+data(weather)
+```
+
+Cleaned, joined and filtered data 
+```{r}
+flights_weather_joined <- flights %>%
+    filter(carrier=="UA") %>% 
+    inner_join(weather, by = c("year", "month", "day", "hour", "origin")) %>% 
+    mutate(late=dep_delay > 0,very_late=dep_delay >30)
+
+```
+
+Keeps (temp, wind_speed, dep_delay, late, very_late) columns and drops everything else. 
+Creates a new data set called flights_weather_dropped.
+```{r}
+
+flights_weather_dropped <- flights_weather_joined %>%
+  select(temp, wind_speed, dep_delay, late, very_late)
+glimpse(flights_weather_dropped)
+```
+
+
+Removing all rows with missing values in the variables that i will be analyzing(temp, wind_speed, temp, late,verylate)
+
+Will be using flight_weather_clean data frame moving forward
+```{r}
+flights_weather_clean <- flights_weather_dropped %>%
+  filter(!is.na(dep_delay), !is.na(temp), !is.na(wind_speed),         !(is.na(late)),!(is.na(very_late)))
+
+```
+
+```{r}
+nrow(flights_weather_clean) 
+```
+
+
+```{r}
+mean_temp_late  <- mean(flights_weather_clean$temp[flights_weather_clean$late])
+mean_temp_on    <- mean(flights_weather_clean$temp[!flights_weather_clean$late])
+obs_diff_temp   <- mean_temp_late - mean_temp_on
+
+mean_wind_late  <- mean(flights_weather_clean$wind_speed[flights_weather_clean$late])
+mean_wind_on    <- mean(flights_weather_clean$wind_speed[!flights_weather_clean$late])
+obs_diff_wind   <- mean_wind_late - mean_wind_on
+
+obs_diff_temp
+obs_diff_wind
+```
+
+
+
+
+
+(summary) gives a statistical overview of each column in the dataset, including counts, means, and quartiles.
+```{r}
+summary(flights_weather_clean)
+
+```
+## Exploratory Data Analysis
+### Departure Delays Vs Temperature Visualizations
+
+```{r}
+# Reshape to long format
+flights_weather_clean_long <- flights_weather_clean %>%
+  select(late, very_late) %>%
+  pivot_longer(cols = everything(), names_to = "type", values_to = "value") %>%
+  filter(!is.na(value))
+
+# Plot grouped histogram
+ggplot(flights_weather_clean_long, aes(x = value, fill = type)) +
+  geom_histogram(stat = "count", position = "dodge", color = "white") +
+  labs(title = "Late vs. Very Late Flights",
+       x = "Delay Status (TRUE/FALSE)",
+       y = "Count",
+       fill = "Delay Type") +
+  theme_minimal()
+```
+
+
+
+###  histogram for departure delay
+```{r}
+ggplot(data=flights_weather_clean, aes(x=dep_delay))+
+  geom_histogram( color="white")
+```
+
+
+
+### Histogram for temperature
+```{r}
+ggplot(data= flights_weather_clean, aes(x=temp))+
+  geom_histogram(color="white")
+```
+- The histogram shows a bimodal temperature distribution, with peaks around 50°F and 75°F, suggesting seasonal variation in flight data
+
+
+```{r}
+#categorize the temperature
+flights_weather_clean <- flights_weather_clean %>%
+  mutate(temp_cat = case_when(
+    temp < 32 ~ "Very Cold",
+    temp >= 32 & temp < 50 ~ "Cold",
+    temp >= 50 & temp < 75 ~ "Moderate",
+    temp >= 75 ~ "Very Hot"
+  ))
+```
+
+```{r}
+flights_weather_clean %>%
+  group_by(temp_cat) %>%
+  summarise(
+    prop_late = mean(late, na.rm = TRUE),
+    prop_very_late = mean(very_late, na.rm = TRUE)
+  ) %>%
+  pivot_longer(cols = starts_with("prop"), names_to = "type", values_to = "proportion") %>%
+  ggplot(aes(x = temp_cat, y = proportion, fill = type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Proportion of Late and Very Late Flights by Temperature Category",
+       x = "Temperature Category", y = "Proportion of Flights",
+       fill = "Delay Type") +
+  theme_minimal()
+```
+-  Both late and very_late proportions spike in the Very Hot category.
+
+
+### Scatter plot for temprature vs dep_delay
+```{r}
+ggplot(flights_weather_clean, aes(x = temp, y = dep_delay)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Departure Delay vs. Temperature")
+```
+
+- This plot shows how departure delays change with temperature, using a scatterplot of flights and a red trend line from linear regression and it looks like that there is no strong linear relationship between temperature and delay duration. Flights with delays greater than 0 minutes (late) and greater than 30 minutes (very late) are scattered throughout all temperature values.
+
+
+
+
+```{r}
+temp_delay_summary<-flights_weather_joined %>%
+  group_by(temp) %>%
+  summarise(mean_delay = mean(dep_delay, na.rm = TRUE))
+temp_delay_summary
+ggplot(data=temp_delay_summary, aes(x = temp, y = mean_delay)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Temperature (°F)", y = "Average Departure Delay (min)")
+```
+Average departure delays fluctuate across temperatures without a clear trend, suggesting temperature alone doesn't strongly influence delay severity
+
+
+```{r}
+flights_weather_clean %>%
+  mutate(temp_bin = cut(temp, breaks = seq(0, 100, by = 10))) %>%
+  ggplot(aes(x = temp_bin, y = dep_delay)) +
+  geom_boxplot() +
+  labs(title = "Departure Delay by Temperature Bin",
+       x = "Temperature Range (°F)", y = "Departure Delay (min)")
+```
+This boxplot shows how departure delays are distributed across 10°F temperature bins, revealing consistent medians and wide variability with outliers in every range.
+
+```{r}
+qqnorm(flights_weather_clean$temp)
+qqline(flights_weather_clean$temp)
+```
+- represents a perfectly normal distribution.
+
+
+## Dep_Delay Vs Wind_Speed
+### Histogram for wind speed
+```{r}
+ggplot(data= flights_weather_clean, aes(x=wind_speed))+
+  geom_histogram(bin=30,color="white", fill="steelblue")
+```
+It is a right-skewed distribution where normal conditions are common, strong wind speeds are rare.
+
+- Most flights occur at low wind speeds, especially between 0 and 15 mph.
+- Very few flights happen at high wind speeds (>25 mph), which makes sense operationally—extreme wind conditions are rare and often disruptive.
+
+
+
+### ScatterPlot for Wind Spped
+```{r}
+ggplot(flights_weather_clean, aes(x = wind_speed, y = dep_delay)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(title = "Departure Delay vs. Wind Speed")
+```
+
+- This plot shows how departure delays change with wind_speed, using a scatterplot of flights and a blue trend line from linear regression.
+- The majority of flights occur when wind speed is below ~20 units and many flights showing large delays even at low wind speeds.
+- increasing wind speed doesn’t consistently predict longer or shorter delays.
+
+
+```{r}
+flights_weather_clean %>%
+  mutate(wind_bin = cut(wind_speed, breaks = seq(0, 40, by = 5))) %>%
+  group_by(wind_bin) %>%
+  summarise(avg_delay = mean(dep_delay, na.rm = TRUE)) %>%
+  ggplot(aes(x = wind_bin, y = avg_delay)) +
+  geom_col(fill = "steelblue") +
+  labs(title = "Average Departure Delay by Wind Speed Bin",
+       x = "Wind Speed Range (mph)", y = "Average Departure Delay (min)")
+```
+
+```{r}
+flights_weather_clean %>%
+  mutate(wind_bin = cut(wind_speed, breaks = seq(0, 40, by = 5)),
+         late = dep_delay > 0,
+         very_late = dep_delay > 30) %>%
+  group_by(wind_bin) %>%
+  summarise(prop_late = mean(late, na.rm = TRUE),
+            prop_very_late = mean(very_late, na.rm = TRUE)) %>%
+  pivot_longer(cols = starts_with("prop"), names_to = "type", values_to = "value") %>%
+  ggplot(aes(x = wind_bin, y = value, fill = type)) +
+  geom_col(position = "dodge") +
+  labs(title = "Proportion of Late and Very Late Flights by Wind Speed",
+       x = "Wind Speed Range (mph)", y = "Proportion")
+```
+- This bar plot shows that while late and very late flights occur across all wind speed ranges, delays are most frequent in the 30–35 mph bin, yet no consistent trend suggests wind speed reliably predicts delay severity.
+
+
+```{r}
+flights_weather_clean %>%
+  group_by(wind_speed) %>%
+  summarise(avg_delay = mean(dep_delay, na.rm = TRUE)) %>%
+  ggplot(aes(x = wind_speed, y = avg_delay)) +
+  geom_line(color = "steelblue") +
+  labs(title = "Average Departure Delay by Wind Speed",
+       x = "Wind Speed (mph)", y = "Average Delay (min)")
+```
+Departure delays tend to increase sharply at higher wind speeds, While moderate wind has a mixed impact, extreme wind conditions clearly correlate with longer delays.
+
+
+```{r}
+ggplot(flights_weather_clean, aes(x = wind_speed)) +
+  geom_density(fill = "steelblue")
+```
+
+
+
+
+```{r}
+qqnorm(flights_weather_clean$wind_speed)
+qqline(flights_weather_clean$wind_speed)
+```
+- Wind speed data in this dataset does not follow a normal distribution
+
+
+## Permuation Test
+### Tempertaure on late
+
+```{r}
+
+# Calculate the observed difference in mean temperature
+observed_difference <- mean(flights_weather_clean$temp[flights_weather_clean$late], na.rm = TRUE) -
+                       mean(flights_weather_clean$temp[!flights_weather_clean$late], na.rm = FALSE)
+
+# Set number of simulations
+N <- 10^4
+
+# Total sample size
+sample.size <- nrow(flights_weather_clean)
+
+# Size of group 1 (late flights)
+group.1.size <- sum(flights_weather_clean$late, na.rm = TRUE)
+
+# Create a blank vector to store simulation results
+result <- numeric(N)
+
+# Permutation loop
+for(i in 1:N) {
+  index <- sample(sample.size, size = group.1.size, replace = FALSE)
+  result[i] <- mean(flights_weather_clean$temp[index], na.rm = TRUE) -
+               mean(flights_weather_clean$temp[-index], na.rm = TRUE)
+}
+
+# Calculate two-sided p-value
+p_value <- 2*(sum(result >= observed_difference) + 1) / (N + 1)
+p_value
+
+
+# Plot histogram of simulated differences
+ggplot(data = tibble(result), aes(x = result)) +
+  geom_histogram(binwidth = 0.1, fill = "gray", color = "white") +
+  geom_vline(xintercept = observed_difference, color = "red", linewidth = 1) +
+  labs(title = "Permutation Test: Mean Temperature Difference",
+       x = "Simulated Difference in Mean Temp",
+       y = "Frequency")
+
+```
+
+
+
+```{r}
+summary(result)
+observed_difference
+
+```
+
+
+
+```{r}
+
+# Calculate the observed difference in mean temperature
+observed_difference <- mean(flights_weather_clean$temp[flights_weather_clean$very_late], na.rm = TRUE) -
+                       mean(flights_weather_clean$temp[!flights_weather_clean$very_late], na.rm = FALSE)
+
+# Set number of simulations
+N <- 10^4
+
+# Total sample size
+sample.size <- nrow(flights_weather_clean)
+
+# Size of group 1 (late flights)
+group.1.size <- sum(flights_weather_clean$very_late, na.rm = TRUE)
+
+# Create a blank vector to store simulation results
+result <- numeric(N)
+
+# Permutation loop
+for(i in 1:N) {
+  index <- sample(sample.size, size = group.1.size, replace = FALSE)
+  result[i] <- mean(flights_weather_clean$temp[index], na.rm = TRUE) -
+               mean(flights_weather_clean$temp[-index], na.rm = TRUE)
+}
+
+# Calculate two-sided p-value
+p_value <- 2*(sum(result >= observed_difference) + 1) / (N + 1)
+p_value
+
+
+# Plot histogram of simulated differences
+ggplot(data = tibble(result), aes(x = result)) +
+  geom_histogram(binwidth = 0.1, fill = "gray", color = "white") +
+  geom_vline(xintercept = observed_difference, color = "red", linewidth = 1) +
+  labs(title = "Permutation Test: Mean Temperature Difference",
+       x = "Simulated Difference in Mean Temp",
+       y = "Frequency")
+
+```
+
+
+
+## Wind_speed
+
+```{r}
+# Create 'late' indicator if not already present
+flights_weather_clean <- flights_weather_clean %>%
+  mutate(late = dep_delay > 0)
+
+# Calculate the observed difference in mean temperature
+observed_difference <- mean(flights_weather_clean$wind_speed[flights_weather_clean$late], na.rm = TRUE) -
+            mean(flights_weather_clean$wind_speed[!flights_weather_clean$late], na.rm = FALSE)
+
+# Set number of simulations
+N <- 10^4
+
+# Total sample size
+sample.size <- nrow(flights_weather_clean)
+
+# Size of group 1 (late flights)
+group.1.size <- sum(flights_weather_clean$late, na.rm = TRUE)
+
+# Create a blank vector to store simulation results
+result <- numeric(N)
+
+# Permutation loop
+for(i in 1:N) {
+  index <- sample(sample.size, size = group.1.size, replace = FALSE)
+  result[i] <- mean(flights_weather_clean$wind_speed[index], na.rm = TRUE) -
+               mean(flights_weather_clean$wind_speed[-index], na.rm = TRUE)
+}
+
+# Calculate two-sided p-value
+p_value <- 2*(sum(result >= observed_difference) + 1) / (N + 1)
+p_value
+
+
+# Plot histogram of simulated differences
+ggplot(data = tibble(result), aes(x = result)) +
+  geom_histogram(binwidth = 0.1, fill = "gray", color = "white") +
+  geom_vline(xintercept = observed_difference, color = "red", linewidth = 1) +
+  labs(title = "Permutation Test: Mean Temperature Difference",
+       x = "Simulated Difference in Mean Temp",
+       y = "Frequency")
+
+```
+
+
+
+
+## wond speed on very late
+```{r}
+
+
+# Calculate the observed difference in mean temperature
+observed_difference <- mean(flights_weather_clean$temp[flights_weather_clean$very_late], na.rm = TRUE) -
+            mean(flights_weather_clean$temp[!flights_weather_clean$very_late], na.rm = FALSE)
+
+# Set number of simulations
+N <- 10^4
+
+# Total sample size
+sample.size <- nrow(flights_weather_clean)
+
+# Size of group 1 (late flights)
+group.1.size <- sum(flights_weather_clean$very_late, na.rm = TRUE)
+
+# Create a blank vector to store simulation results
+result <- numeric(N)
+
+# Permutation loop
+for(i in 1:N) {
+  index <- sample(sample.size, size = group.1.size, replace = FALSE)
+  result[i] <- mean(flights_weather_clean$temp[index], na.rm = TRUE) -
+               mean(flights_weather_clean$temp[-index], na.rm = TRUE)
+}
+
+# Calculate two-sided p-value
+p_value <- 2*(sum(result >= observed_difference) + 1) / (N + 1)
+p_value
+
+
+# Plot histogram of simulated differences
+ggplot(data = tibble(result), aes(x = result)) +
+  geom_histogram(binwidth = 0.1, fill = "gray", color = "white") +
+  geom_vline(xintercept = observed_difference, color = "red", linewidth = 1) +
+  labs(title = "Permutation Test: Mean Temperature Difference",
+       x = "Simulated Difference in Mean Temp",
+       y = "Frequency")
+
+```
+
+
+
+
+
+
+```{r}
+cor(flights_weather_clean$temp, flights_weather_clean$dep_delay, use = "complete.obs")
+cor(flights_weather_clean$wind_speed, flights_weather_clean$dep_delay, use = "complete.obs")
+```
+
+
+```{r}
+model <- lm(dep_delay ~ temp + wind_speed, data = flights_weather_clean)
+summary(model)
+```
+
+
+
+
+
+
