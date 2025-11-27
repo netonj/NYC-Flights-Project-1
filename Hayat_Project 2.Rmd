@@ -1,0 +1,190 @@
+---
+title: "Project 2"
+author: "Hayat Kimo"
+date: "2025-11-15"
+output: html_document
+---
+
+
+## Does the average gain differ for flights that departed late versus those that did not? What about for flights that departed more than 30 minutes late?
+
+```{r}
+library(tidyverse)
+library(nycflights13)
+data(flights)
+
+UA_flights=flights %>% 
+  filter(carrier =="UA") %>% 
+  mutate(Net_gain = dep_delay-arr_delay) %>% 
+  mutate(late=dep_delay > 0,very_late=dep_delay >30)%>%
+  filter(!is.na(dep_delay), !is.na(arr_delay), !is.na(Net_gain))
+
+```
+
+
+```{r}
+
+```
+```{r}
+UA_flights %>%
+  group_by(late) %>%
+  summarize(
+    avg_net_gain = mean(Net_gain),
+    sd_net_gain = sd(Net_gain),
+    n = n()
+  )
+
+```
+For UA flights, those that departed late (dep_delay > 0) had an average net gain of 7.54 minutes (SD = 20.86, n = 27,125), while flights that did not depart late had an average net gain of 9.27 minutes (SD = 17.28, n = 30,657). This indicates that on-time flights slightly recovered more time in the air on average, though late flights showed greater variability.
+
+
+being late doesn’t guarantee you gain more time in the air — some late flights make up a lot, some lose more.
+
+```{r}
+UA_flights %>%
+  group_by(very_late) %>%
+  summarize(
+    avg_net_gain = mean(Net_gain),
+    sd_net_gain = sd(Net_gain),
+    n = n()
+  )
+```
+
+For UA flights, those delayed more than 30 minutes had an average net gain of 6.86 minutes (SD = 24.43, n = 7,550), while flights delayed 30 minutes or less had an average net gain of 8.70 minutes (SD = 18.11, n = 50,232). Very late flights gained slightly less time on average, but the variability was higher.
+
+
+
+```{r}
+# Summary statistics
+UA_flights %>%
+  summarize(
+    n = n(),
+    mean_net_gain = mean(Net_gain),
+    sd_net_gain = sd(Net_gain),
+    median_net_gain = median(Net_gain),
+    IQR_net_gain = IQR(Net_gain),
+    min_net_gain = min(Net_gain),
+    max_net_gain = max(Net_gain)
+  )
+
+```
+For UA flights, net gain ranged from -165 minutes to 74 minutes, with a mean of 8.46 minutes and a median of 10 minutes. The interquartile range (IQR) of 21 minutes indicates that the middle 50% of flights recovered between roughly 0 and 21 minutes in the air. Most flights gained time, but some extreme cases lost a substantial amount, creating a highly variable distribution (SD = 19.07).
+
+
+```{r}
+#net gain by subtracting the arrival delay from the departure delay 
+# we need dep delay (late and very late)
+# i have to compare net gain with dep delays(late and very late)
+
+
+ggplot(data = UA_flights, aes(x=Net_gain))+
+  geom_histogram(bins = 60, color = "white", fill = "#2C7FB8")+
+  theme_minimal()
+
+```
+
+```{r}
+
+# Average net gain by late status
+late_summary <- UA_flights %>%
+  group_by(late) %>%
+  summarize(avg_net_gain = mean(Net_gain))
+
+
+ggplot(late_summary, aes(x = late, y = avg_net_gain, fill = late)) +
+  geom_col() +  # geom_col() plots heights of bars = values in y
+  labs( y = "Average Net Gain (minutes)",
+    title = "Average Net Gain by Late flights"
+  ) +
+  theme_minimal()
+
+
+```
+```{r}
+very_late_summary <- UA_flights %>%
+  group_by(very_late) %>%
+  summarize(avg_net_gain = mean(Net_gain))
+
+ggplot(very_late_summary, aes(x = very_late, y = avg_net_gain, fill = very_late)) +
+  geom_col() +
+  labs(y = "Average Net Gain (minutes)",
+    title = "Average Net Gain by Very Late"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+UA_flights <- UA_flights %>%
+  mutate(group = case_when(
+    very_late ~ "very_late > 30 min",
+    late ~ "Late > 0 min",
+    TRUE ~ "On-time or early < 0"
+  ))
+
+group_summary <- UA_flights %>%
+  group_by(group) %>%
+  summarize(avg_net_gain = mean(Net_gain))
+
+ggplot(group_summary, aes(x = group, y = avg_net_gain, fill = group)) +
+  geom_col() +
+  labs(
+    x = "Flight Group",
+    y = "Average Net Gain (minutes)",
+    title = "Average Net Gain by Flight Group"
+  ) +
+  theme_minimal()
+
+```
+
+
+```{r}
+ggplot(data = UA_flights, aes(x="", y=Net_gain))+
+  geom_boxplot()+
+  theme_minimal()
+```
+```{r}
+
+
+ggplot(data = UA_flights, aes(x=late, y=Net_gain))+
+  geom_boxplot(fill=c("lightblue","pink"))+
+  theme_minimal()+
+  labs(title="Net Gain by Late vs Not Late Flights")
+
+ggplot(data = UA_flights, aes(x=very_late, y=Net_gain))+
+  geom_boxplot(fill=c("lightblue","orange"))+
+  theme_minimal()+
+  labs(title="Net Gain by Very Late vs Other Flights")
+```
+
+```{r}
+ggplot(data= UA_flights, aes(x = Net_gain, fill = late)) +
+  geom_density(alpha = 0.4) +
+  labs(title="Density of Net Gain: Late vs Not Late", x="Net Gain (minutes)")+
+  theme_minimal()
+
+ggplot(data= UA_flights, aes(x = Net_gain, fill = very_late)) +
+  geom_density(alpha = 0.4) +
+  labs(title="Density of Net Gain: Very_Late vs Others", x="Net Gain (minutes)")+
+  theme_minimal()
+
+```
+
+
+# Statistical Analysis
+
+```{r}
+t.test(Net_gain ~ late, data = UA_flights)
+
+```
+
+Flights that depart late tend to gain slightly less time in the air than flights that depart on time, but the difference is statistically significant due to the large number of flights.
+
+We are 95% confident that on-time flights gain 1.41–2.04 minutes more than late flights.
+
+
+```{r}
+t.test(Net_gain ~ very_late, data = UA_flights)
+```
+Flights delayed more than 30 minutes tend to make up slightly less time in the air than flights delayed 30 minutes or less, with higher variability in net gain.
+
+
