@@ -1,0 +1,116 @@
+---
+title: "Neton Project 2 Code"
+author: "Jack Neton"
+date: "2025-11-26"
+output: html_document
+---
+
+```{r}
+library(nycflights13)
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+flights <- flights %>% 
+  mutate(
+    gain = dep_delay - arr_delay)
+
+ua <- flights %>% 
+  filter(carrier == "UA")
+
+top5_ua <- ua %>% 
+  count(dest, sort = TRUE) %>% 
+  slice_head(n=5)
+
+top5_ua
+```
+
+The five most common United destinations out of NYC are ORD, IAH, SFO, LAX, and DEN.
+
+```{r}
+
+ua_top5 <- ua %>% 
+  filter(dest %in% top5_ua$dest)
+
+ggplot(ua_top5, aes(x=gain)) +
+  geom_histogram() +
+  facet_wrap(~dest)
+```
+
+
+All five destinations show gain values mostly stacked below zero, meaning United flights usually lose time en route. The shapes are pretty similar across airports: a tall center around slight delays, with a long left tail from flights that lost a ton of time. ORD looks the most skewed negative, while DEN and SFO are a bit tighter and less extreme.
+
+```{r}
+ua_top5 %>% 
+  group_by(dest) %>% 
+  summarise(avg_gain = mean(gain, na.rm = TRUE))
+```
+
+# Prepare graphs for presentation
+
+```{r}
+gain_dist <- ggplot(ua_top5, aes(x = gain)) +
+  geom_histogram(fill = "navy", color = "lightblue") +
+  facet_wrap(~ dest) +
+  labs(
+    title = "Distribution of Time Gain/Loss for Top 5 United Airlines Destinations",
+    x = "Gain (minutes)",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+gain_dist
+```
+
+```{r}
+ggsave(filename = "top5gain.png", plot = gain_dist)
+```
+
+# Confidence Testing
+
+```{r}
+ua_top5 %>%
+  group_by(dest) %>%
+  summarise(
+    ci_low  = t.test(gain)$conf.int[1],
+    ci_high = t.test(gain)$conf.int[2],
+    mean_gain = mean(gain, na.rm = TRUE)
+  )
+```
+
+All five airports have 95% confidence intervals that sit entirely above zero, meaning United flights to these destinations reliably gain time in the air on average. SFO has the largest estimated gain (CI roughly 8.2 to 9.2 minutes), while IAH shows the smallest (around 6.4 to 7.3 minutes). Since none of the intervals cross zero, the data strongly suggests these routes consistently make up time rather than lose it.
+
+## Bootstrap testing
+
+```{r}
+B <- 1000
+
+boot_results <- ua_top5 %>%
+  group_by(dest) %>%
+  summarise(
+    ci_low = {
+      x <- gain
+      boots <- numeric(B)
+      for(i in 1:B){
+        boot_sample <- sample(x, size = length(x), replace = TRUE)
+        boots[i] <- mean(boot_sample, na.rm = TRUE)
+      }
+      quantile(boots, 0.025, na.rm = TRUE)
+    },
+    ci_high = {
+      x <- gain
+      boots <- numeric(B)
+      for(i in 1:B){
+        boot_sample <- sample(x, size = length(x), replace = TRUE)
+        boots[i] <- mean(boot_sample, na.rm = TRUE)
+      }
+      quantile(boots, 0.975, na.rm = TRUE)
+    },
+    mean_gain = mean(gain, na.rm = TRUE)
+  )
+
+boot_results
+```
+
+All five bootstrap intervals fall fully above zero, confirming that United flights to DEN, IAH, LAX, ORD, and SFO consistently gain time on average. The average gain ranges from about 6.4–7.3 minutes for IAH and DEN up to roughly 8.2–9.2 minutes for SFO, which shows the largest improvement. Since none of the bootstrap CIs include zero, the evidence strongly supports that these routes regularly make up time in the air.
